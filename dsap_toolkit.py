@@ -1,34 +1,3 @@
-"""
-dsap_toolkit.py
-
-A small toolkit that automates the repetitive parts of the WSSP/DSAP
-practice-clone workflow:
-
-  1. find_insert_boundaries()  - locate the cDNA insert start (after the
-                                  GAATTC / ATTAC / G-string adapter) and
-                                  the end of the poly-A tail
-  2. clean_ns()                - replace ambiguous 'N' base calls with 'A'
-                                  (per the "cDNAs end in poly-A" rule)
-  3. find_best_orf()           - translate all 3 forward reading frames
-                                  and return the longest ORF (start/end
-                                  base numbers, protein sequence)
-  4. classify_clone()          - apply the "DSAP commandments" to decide
-                                  clone type (full ORF / back-end partial /
-                                  front-end partial / middle partial /
-                                  non-coding) and what UTRs should exist
-  5. run_blastx() / summarize_blast_hits()
-                                - submit a sequence to NCBI BLAST and pull
-                                  out the top hit per distinct organism,
-                                  formatted ready to paste into a DSAP table
-  6. passes_evalue_threshold() - quick E-value sanity check
-
-Requires: biopython  (pip install biopython --break-system-packages)
-
-Everything is written as plain functions so you can import just the
-pieces you want, or run this file directly to see a demo on a toy
-sequence.
-"""
-
 from __future__ import annotations
 import re
 import time
@@ -290,76 +259,6 @@ def passes_evalue_threshold(evalue: float, threshold: float = 1e-6) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# 6. BLAST SUBMISSION + TABLE SUMMARY  (requires biopython + internet)
-# ---------------------------------------------------------------------------
-
-def run_blastx(sequence: str, database: str = "nr", hitlist_size: int = 50):
-    """
-    Submit `sequence` to NCBI's BLASTx (protein) search and return the
-    parsed Biopython BLAST record. This is a network call and can take
-    a minute or two, mirroring the "Searching..." wait in the DSAP UI.
-
-    Requires: from Bio.Blast import NCBIWWW, NCBIXML
-    """
-    from Bio.Blast import NCBIWWW, NCBIXML
-
-    result_handle = NCBIWWW.qblast(
-        "blastx", database, sequence,
-        hitlist_size=hitlist_size,
-    )
-    record = NCBIXML.read(result_handle)
-    return record
-
-
-def summarize_blast_hits(record, max_organisms: int = 3) -> list[dict]:
-    """
-    Walk a parsed BLAST record and pull the best hit from each of up to
-    `max_organisms` DISTINCT organisms -- exactly the "list the best
-    matches from three different organisms" step DSAP asks for.
-
-    Returns a list of dicts ready to drop into a DSAP table:
-    accession, definition, organism, start, end, evalue
-    """
-    seen_organisms = set()
-    rows = []
-
-    for alignment in record.alignments:
-        title = alignment.title
-        # Titles look like: "gi|123|ref|XM_1.1| PREDICTED: ... [Genus species]"
-        organism_match = re.search(r"\[([^\]]+)\]", title)
-        organism = organism_match.group(1) if organism_match else "unknown"
-
-        if organism in seen_organisms:
-            continue
-
-        hsp = alignment.hsps[0]  # best HSP for this alignment
-        rows.append({
-            "accession": alignment.accession,
-            "definition": title.split("|")[-1].split("[")[0].strip()[:60],
-            "organism": organism,
-            "start": hsp.query_start,
-            "end": hsp.query_end,
-            "evalue": hsp.expect,
-        })
-        seen_organisms.add(organism)
-
-        if len(rows) >= max_organisms:
-            break
-
-    return rows
-
-
-def print_blast_table(rows: list[dict]) -> None:
-    """Pretty-print a summarize_blast_hits() result as a simple table."""
-    if not rows:
-        print("No hits found.")
-        return
-    print(f"{'Accession':<15}{'Organism':<25}{'Start':<8}{'End':<8}{'E-value':<10}")
-    for r in rows:
-        print(f"{r['accession']:<15}{r['organism']:<25}{r['start']:<8}{r['end']:<8}{r['evalue']:<10}")
-
-
-# ---------------------------------------------------------------------------
 # DEMO
 # ---------------------------------------------------------------------------
 
@@ -396,6 +295,3 @@ if __name__ == "__main__":
     print("2e-40 passes threshold:", passes_evalue_threshold(2e-40))
     print("0.5 passes threshold:", passes_evalue_threshold(0.5))
     print("Blast Results (this may take a minute or two)...")
-    print(record = run_blastx(insert_seq))
-    print(rows = summarize_blast_hits(record))
-    print(print_blast_table(rows))
